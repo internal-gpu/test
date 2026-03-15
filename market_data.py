@@ -123,6 +123,55 @@ class MarketData:
         }
         return result
 
+    def get_technicals_series(self, symbol, period="6mo"):
+        """Calculate technical indicators as full time-series DataFrames for charting.
+
+        Args:
+            symbol: Stock ticker symbol.
+            period: Time period for historical data.
+
+        Returns:
+            Dict with 'price_df' (OHLCV + MAs + Bollinger) and 'indicator_df' (RSI, MACD).
+        """
+        df = self.get_price_history(symbol, period=period)
+        if df.empty:
+            return {"price_df": pd.DataFrame(), "indicator_df": pd.DataFrame()}
+
+        close = df["Close"]
+
+        # Price DataFrame with overlays
+        price_df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+        price_df["MA5"] = close.rolling(5).mean()
+        price_df["MA10"] = close.rolling(10).mean()
+        price_df["MA20"] = close.rolling(20).mean()
+        price_df["MA60"] = close.rolling(60).mean()
+
+        bb_std = close.rolling(20).std()
+        price_df["BB_Upper"] = price_df["MA20"] + 2 * bb_std
+        price_df["BB_Lower"] = price_df["MA20"] - 2 * bb_std
+
+        # Indicator DataFrame
+        delta = close.diff()
+        gain = delta.where(delta > 0, 0).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+
+        ema12 = close.ewm(span=12, adjust=False).mean()
+        ema26 = close.ewm(span=26, adjust=False).mean()
+        macd_line = ema12 - ema26
+        signal_line = macd_line.ewm(span=9, adjust=False).mean()
+        macd_hist = macd_line - signal_line
+
+        indicator_df = pd.DataFrame({
+            "RSI": rsi,
+            "MACD": macd_line,
+            "MACD_Signal": signal_line,
+            "MACD_Hist": macd_hist,
+        }, index=df.index)
+
+        return {"price_df": price_df, "indicator_df": indicator_df}
+
     def get_multi_stock_summary(self, symbols):
         """Get summary data for multiple stocks.
 

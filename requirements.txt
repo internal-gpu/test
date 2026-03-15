@@ -4,3 +4,5 @@ python-dotenv>=1.0.0
 yfinance>=0.2.36
 pyyaml>=6.0
 pandas>=2.0.0
+streamlit>=1.30.0
+plotly>=5.18.0
