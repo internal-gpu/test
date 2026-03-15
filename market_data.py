@@ -1,10 +1,9 @@
-"""Market data fetcher using Alpha Vantage API."""
+"""Market data fetcher using Twelve Data API."""
 
 import json
 import os
 import time
 import hashlib
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -15,35 +14,38 @@ CACHE_TTL_SECONDS = 15 * 60  # 15 minutes
 
 
 class MarketData:
-    """Fetch and process stock market data via Alpha Vantage."""
+    """Fetch and process stock market data via Twelve Data."""
 
-    BASE_URL = "https://www.alphavantage.co/query"
+    BASE_URL = "https://api.twelvedata.com"
 
     def __init__(self, api_key=None):
-        self.api_key = api_key or os.getenv("ALPHA_VANTAGE_API_KEY", "")
+        self.api_key = api_key or os.getenv("TWELVEDATA_API_KEY", "")
         if not self.api_key:
             raise ValueError(
-                "Alpha Vantage API key required. "
-                "Set ALPHA_VANTAGE_API_KEY in .env or pass api_key=."
+                "Twelve Data API key required. "
+                "Set TWELVEDATA_API_KEY in .env or pass api_key=."
             )
         CACHE_DIR.mkdir(exist_ok=True)
 
     # ------------------------------------------------------------------
-    # Alpha Vantage API helpers
+    # API helpers
     # ------------------------------------------------------------------
 
-    def _request(self, params, cache_ttl=CACHE_TTL_SECONDS):
-        """Make a cached request to Alpha Vantage.
+    def _request(self, endpoint, params, cache_ttl=CACHE_TTL_SECONDS):
+        """Make a cached request to Twelve Data.
 
         Args:
+            endpoint: API endpoint path (e.g. '/quote', '/time_series').
             params: Dict of query parameters (without apikey).
             cache_ttl: Cache time-to-live in seconds.
 
         Returns:
-            Parsed JSON dict.
+            Parsed JSON (dict or list).
         """
         params["apikey"] = self.api_key
-        cache_key = hashlib.md5(json.dumps(params, sort_keys=True).encode()).hexdigest()
+        cache_key = hashlib.md5(
+            json.dumps({"ep": endpoint, **params}, sort_keys=True).encode()
+        ).hexdigest()
         cache_file = CACHE_DIR / f"{cache_key}.json"
 
         # Check cache
@@ -52,23 +54,23 @@ class MarketData:
             if age < cache_ttl:
                 return json.loads(cache_file.read_text())
 
-        resp = requests.get(self.BASE_URL, params=params, timeout=30)
+        url = f"{self.BASE_URL}{endpoint}"
+        resp = requests.get(url, params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
 
-        # Alpha Vantage rate-limit / error messages
-        if "Note" in data:
-            raise RuntimeError(f"Alpha Vantage rate limit: {data['Note']}")
-        if "Error Message" in data:
-            raise RuntimeError(f"Alpha Vantage error: {data['Error Message']}")
-        if "Information" in data and "rate" in data["Information"].lower():
-            raise RuntimeError(f"Alpha Vantage: {data['Information']}")
+        # Error handling
+        if isinstance(data, dict):
+            if data.get("code") == 429:
+                raise RuntimeError(f"Twelve Data rate limit: {data.get('message', '')}")
+            if data.get("status") == "error":
+                raise RuntimeError(f"Twelve Data error: {data.get('message', data)}")
 
         cache_file.write_text(json.dumps(data))
         return data
 
     # ------------------------------------------------------------------
-    # Public interface (same signatures as before)
+    # Public interface
     # ------------------------------------------------------------------
 
     def get_stock_info(self, symbol):
@@ -80,42 +82,56 @@ class MarketData:
         Returns:
             Dict with stock info including name, price, market cap, etc.
         """
-        # OVERVIEW for fundamentals
-        overview = self._request({
-            "function": "OVERVIEW",
-            "symbol": symbol,
-        }, cache_ttl=3600)  # cache 1 hour — fundamentals change slowly
+        # /quote — real-time price + basic stats
+        quote = self._request("/quote", {"symbol": symbol})
 
-        # GLOBAL_QUOTE for real-time price
-        quote = self._request({
-            "function": "GLOBAL_QUOTE",
-            "symbol": symbol,
-        })
-        q = quote.get("Global Quote", {})
+        # /statistics — fundamentals (PE, market cap, etc.)
+        # Twelve Data free tier may not include this, so we handle gracefully
+        stats = {}
+        try:
+            stats = self._request("/statistics", {"symbol": symbol}, cache_ttl=3600)
+            if isinstance(stats, dict) and "statistics" in stats:
+                stats = stats["statistics"]
+            else:
+                stats = {}
+        except Exception:
+            stats = {}
 
-        current_price = _float(q.get("05. price"))
-        previous_close = _float(q.get("08. previous close"))
+        # /profile — company name, sector, industry
+        profile = {}
+        try:
+            profile = self._request("/profile", {"symbol": symbol}, cache_ttl=86400)
+        except Exception:
+            profile = {}
+
+        current_price = _float(quote.get("close"))
+        previous_close = _float(quote.get("previous_close"))
+
+        # Extract stats safely
+        valuations = stats.get("valuations_metrics", {}) if isinstance(stats, dict) else {}
+        financials = stats.get("financial_highlights", {}) if isinstance(stats, dict) else {}
+        stock_stats = stats.get("stock_statistics", {}) if isinstance(stats, dict) else {}
 
         return {
             "symbol": symbol,
-            "name": overview.get("Name", symbol),
-            "currency": overview.get("Currency", "USD"),
+            "name": quote.get("name") or profile.get("name", symbol),
+            "currency": quote.get("currency", "USD"),
             "current_price": current_price,
             "previous_close": previous_close,
-            "open": _float(q.get("02. open")),
-            "day_high": _float(q.get("03. high")),
-            "day_low": _float(q.get("04. low")),
-            "volume": _int(q.get("06. volume")),
-            "market_cap": _float(overview.get("MarketCapitalization")),
-            "pe_ratio": _float(overview.get("TrailingPE")),
-            "forward_pe": _float(overview.get("ForwardPE")),
-            "dividend_yield": _float(overview.get("DividendYield")),
-            "52w_high": _float(overview.get("52WeekHigh")),
-            "52w_low": _float(overview.get("52WeekLow")),
-            "50d_avg": _float(overview.get("50DayMovingAverage")),
-            "200d_avg": _float(overview.get("200DayMovingAverage")),
-            "sector": overview.get("Sector", "N/A"),
-            "industry": overview.get("Industry", "N/A"),
+            "open": _float(quote.get("open")),
+            "day_high": _float(quote.get("high")),
+            "day_low": _float(quote.get("low")),
+            "volume": _int(quote.get("volume")),
+            "market_cap": _float(valuations.get("market_capitalization")),
+            "pe_ratio": _float(valuations.get("trailing_pe")),
+            "forward_pe": _float(valuations.get("forward_pe")),
+            "dividend_yield": _float(financials.get("dividend_yield")),
+            "52w_high": _float(quote.get("fifty_two_week", {}).get("high")) if isinstance(quote.get("fifty_two_week"), dict) else _float(stock_stats.get("weeks_52_high")),
+            "52w_low": _float(quote.get("fifty_two_week", {}).get("low")) if isinstance(quote.get("fifty_two_week"), dict) else _float(stock_stats.get("weeks_52_low")),
+            "50d_avg": _float(stock_stats.get("50_day_ma")),
+            "200d_avg": _float(stock_stats.get("200_day_ma")),
+            "sector": profile.get("sector", "N/A"),
+            "industry": profile.get("industry", "N/A"),
         }
 
     def get_price_history(self, symbol, period="3mo", interval="1d"):
@@ -123,48 +139,41 @@ class MarketData:
 
         Args:
             symbol: Stock ticker symbol.
-            period: Time period (1mo, 3mo, 6mo, 1y, 2y, 5y — mapped to outputsize).
-            interval: Ignored for daily data (Alpha Vantage always returns daily).
+            period: Time period (1mo, 3mo, 6mo, 1y, 2y, 5y).
+            interval: Data interval (default '1day' for Twelve Data).
 
         Returns:
             pandas DataFrame with OHLCV data, DatetimeIndex, sorted ascending.
         """
-        # For periods > 3mo we need full output
-        compact_periods = {"1mo", "3mo"}
-        outputsize = "compact" if period in compact_periods else "full"
+        # Map period to outputsize (number of data points)
+        period_map = {
+            "1mo": 22, "3mo": 66, "6mo": 130,
+            "1y": 252, "2y": 504, "5y": 1260,
+        }
+        outputsize = period_map.get(period, 130)
 
-        data = self._request({
-            "function": "TIME_SERIES_DAILY",
+        data = self._request("/time_series", {
             "symbol": symbol,
-            "outputsize": outputsize,
+            "interval": "1day",
+            "outputsize": str(outputsize),
         })
 
-        ts = data.get("Time Series (Daily)", {})
-        if not ts:
+        values = data.get("values", [])
+        if not values:
             return pd.DataFrame()
 
         rows = []
-        for date_str, vals in ts.items():
+        for v in values:
             rows.append({
-                "Date": pd.Timestamp(date_str),
-                "Open": float(vals["1. open"]),
-                "High": float(vals["2. high"]),
-                "Low": float(vals["3. low"]),
-                "Close": float(vals["4. close"]),
-                "Volume": int(vals["5. volume"]),
+                "Date": pd.Timestamp(v["datetime"]),
+                "Open": float(v["open"]),
+                "High": float(v["high"]),
+                "Low": float(v["low"]),
+                "Close": float(v["close"]),
+                "Volume": int(v["volume"]),
             })
 
         df = pd.DataFrame(rows).set_index("Date").sort_index()
-
-        # Trim to requested period
-        period_days = {
-            "1mo": 30, "3mo": 90, "6mo": 180,
-            "1y": 365, "2y": 730, "5y": 1825,
-        }
-        days = period_days.get(period, 180)
-        cutoff = pd.Timestamp.now() - pd.Timedelta(days=days)
-        df = df[df.index >= cutoff]
-
         return df
 
     def calculate_technicals(self, symbol, period="6mo"):
@@ -204,10 +213,9 @@ class MarketData:
         macd_hist = macd_line - signal_line
 
         # Bollinger Bands (20-day)
-        bb_mid = ma20
         bb_std = close.rolling(20).std()
-        bb_upper = bb_mid + 2 * bb_std
-        bb_lower = bb_mid - 2 * bb_std
+        bb_upper = ma20 + 2 * bb_std
+        bb_lower = ma20 - 2 * bb_std
 
         # Volume analysis
         vol_avg_20 = df["Volume"].rolling(20).mean()
@@ -228,7 +236,6 @@ class MarketData:
             "volume_ratio": _round(df["Volume"].iloc[-1] / vol_avg_20.iloc[-1]) if vol_avg_20.iloc[-1] > 0 else None,
             "price_change_5d": _round((latest / close.iloc[-6] - 1) * 100) if len(close) >= 6 else None,
             "price_change_20d": _round((latest / close.iloc[-21] - 1) * 100) if len(close) >= 21 else None,
-            # Trend signals
             "above_ma20": bool(latest > ma20.iloc[-1]) if len(ma20.dropna()) > 0 else None,
             "above_ma60": bool(latest > ma60.iloc[-1]) if len(ma60.dropna()) > 0 else None,
             "ma5_cross_ma20": bool((ma5.iloc[-1] > ma20.iloc[-1]) != (ma5.iloc[-2] > ma20.iloc[-2])) if len(ma5.dropna()) > 1 and len(ma20.dropna()) > 1 else None,
@@ -251,7 +258,6 @@ class MarketData:
 
         close = df["Close"]
 
-        # Price DataFrame with overlays
         price_df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
         price_df["MA5"] = close.rolling(5).mean()
         price_df["MA10"] = close.rolling(10).mean()
@@ -262,7 +268,6 @@ class MarketData:
         price_df["BB_Upper"] = price_df["MA20"] + 2 * bb_std
         price_df["BB_Lower"] = price_df["MA20"] - 2 * bb_std
 
-        # Indicator DataFrame
         delta = close.diff()
         gain = delta.where(delta > 0, 0).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
