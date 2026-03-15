@@ -1,0 +1,4 @@
+#!/usr/bin/env python3
+"""AI 投资组合管理系统 - 快捷入口"""
+from portfolio.cli import main
+main()

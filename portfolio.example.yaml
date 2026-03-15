@@ -1,0 +1,55 @@
+# AI 投资组合配置
+# 复制为 portfolio.yaml 后使用
+
+holdings:
+  # 港股
+  - ticker: "9698.HK"
+    shares: 100
+    avg_cost: 774
+  - ticker: "0700.HK"
+    shares: 100
+    avg_cost: 510
+  - ticker: "9988.HK"
+    shares: 500
+    avg_cost: 140
+
+  # 美股
+  - ticker: "CLSK"
+    shares: 200
+    avg_cost: 13.07
+  - ticker: "GLW"
+    shares: 100
+    avg_cost: 130
+  - ticker: "GOOGL"
+    shares: 100
+    avg_cost: 179
+  - ticker: "LITE"
+    shares: 30
+    avg_cost: 639
+  - ticker: "WGMI"
+    shares: 200
+    avg_cost: 41.7
+
+cash:
+  - currency: HKD
+    amount: 50000
+  - currency: USD
+    amount: 10000
+
+watchlist:
+  - "NVDA"
+  - "TSM"
+  - "MRVL"
+  - "ANET"
+  - "VRT"
+  - "SMCI"
+  - "IREN"
+  - "CORZ"
+  - "AVGO"
+  - "COHR"
+
+settings:
+  default_currency: USD
+  hkd_usd_rate: 0.128
+  risk_tolerance: aggressive
+  rebalance_threshold_pct: 5
