@@ -1,0 +1,13 @@
+# Stock Strategy Assistant — Daily Report Crontab
+#
+# Edit your crontab: crontab -e
+# Then add one of the following lines:
+
+# Generate daily report at 9:00 PM (after US market close, next day for Asia)
+0 21 * * 1-5 cd /path/to/project && /path/to/python stock_assistant.py report >> /var/log/stock_report.log 2>&1
+
+# Generate report for a specific strategy only
+0 21 * * 1-5 cd /path/to/project && /path/to/python stock_assistant.py report --strategy example_us_tech >> /var/log/stock_report.log 2>&1
+
+# Send report via email (requires mailutils or similar)
+# 0 21 * * 1-5 cd /path/to/project && /path/to/python stock_assistant.py report && mail -s "Daily Stock Report" you@email.com < reports/$(ls -t reports/ | head -1)

@@ -1,0 +1,36 @@
+name: A股核心资产
+description: 保守策略 — 关注A股蓝筹和核心资产
+symbols:
+  - 600519.SS   # 贵州茅台
+  - 000858.SZ   # 五粮液
+  - 601318.SS   # 中国平安
+  - 000001.SZ   # 平安银行
+style: conservative
+rules:
+  - type: rsi
+    name: RSI 保守
+    oversold: 25
+    overbought: 75
+    weight: 1
+  - type: price_vs_ma
+    name: 价格偏离MA60
+    ma: ma60
+    threshold: 8
+    weight: 1
+  - type: macd
+    name: MACD 趋势
+    weight: 1
+  - type: pe_ratio
+    name: 估值检查
+    low: 8
+    high: 30
+    weight: 1
+risk_management:
+  max_position_pct: 15
+  stop_loss_pct: 5
+  take_profit_pct: 15
+  max_total_exposure_pct: 70
+notes: |
+  A股核心资产保守策略。
+  适合长期持有型投资者。
+  可根据市场情况调整止损止盈参数。

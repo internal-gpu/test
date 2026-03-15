@@ -1,0 +1,39 @@
+name: US Tech Stocks
+description: Balanced strategy for US tech stocks
+symbols:
+  - AAPL
+  - MSFT
+  - GOOGL
+  - NVDA
+style: balanced
+rules:
+  - type: rsi
+    name: RSI Standard
+    oversold: 30
+    overbought: 70
+    weight: 1
+  - type: ma_cross
+    name: MA5/MA20 Cross
+    fast: ma5
+    slow: ma20
+    weight: 1
+  - type: macd
+    name: MACD Signal
+    weight: 1
+  - type: bollinger
+    name: Bollinger Position
+    weight: 1
+  - type: pe_ratio
+    name: Valuation Check
+    low: 15
+    high: 40
+    weight: 1
+risk_management:
+  max_position_pct: 20
+  stop_loss_pct: 8
+  take_profit_pct: 25
+  max_total_exposure_pct: 80
+notes: |
+  This is an example strategy for US tech stocks.
+  Edit the symbols, rules, and risk parameters to match your needs.
+  You can add or remove rules, adjust thresholds, and change symbols freely.
