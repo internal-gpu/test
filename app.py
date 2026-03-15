@@ -1,6 +1,9 @@
 """Stock Strategy Assistant — Streamlit Dashboard."""
 
 import json
+from dotenv import load_dotenv
+load_dotenv()
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
